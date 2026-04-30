@@ -216,3 +216,17 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Telegram
+*.session
+*.session-journal
+
+# Raw and processed data
+data/
+data/raw/
+data/processed/
+*.csv
+*.json
+
+# Сonfiguration files
+.env
