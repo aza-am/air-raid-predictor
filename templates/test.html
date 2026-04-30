@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Air Alarm Forecast</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="version-badge">Version 2.0 · Live inference pipeline</div>
+      <h1>Air Alarm Forecast</h1>
+      <p>
+        A web service for 24-hour regional air alarm risk prediction based on weather forecast,
+        Telegram updates, historical alarm features and an XGBoost model.
+      </p>
+    </div>
+
+    <div class="grid">
+      <aside class="card">
+        <h2>Forecast Settings</h2>
+
+        <div class="form-group">
+          <label for="region">Choose region</label>
+          <select id="region">
+            <option value="all">All regions</option>
+          </select>
+        </div>
+
+        <button id="loadForecastBtn">Show forecast</button>
+
+        <div class="meta">
+          <div><strong>Last model train:</strong> <span id="lastTrainTime">2026-04-11 10:00</span></div>
+          <div><strong>Last prediction update:</strong> <span id="lastPredictionTime">2026-04-11 12:00</span></div>
+          <div class="status" id="systemStatus">Online service - AWS deployment</div>
+        </div>
+      </aside>
+
+      <main class="card">
+        <div class="forecast-header">
+          <div class="region-title" id="forecastTitle">Forecast</div>
+        </div>
+
+        <div id="forecastContent" class="placeholder">
+          Select a region to view the predicted alarm risk for the next 24 hours.
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div id="chartWrapper" class="chart-container hidden">
+    <canvas id="forecastChart"></canvas>
+  </div>
+
+
+  <script>
+const regionSelect = document.getElementById("region");
+const loadForecastBtn = document.getElementById("loadForecastBtn");
+const forecastContent = document.getElementById("forecastContent");
+const forecastTitle = document.getElementById("forecastTitle");
+const lastTrainTime = document.getElementById("lastTrainTime");
+const lastPredictionTime = document.getElementById("lastPredictionTime");
+const chartWrapper = document.getElementById("chartWrapper");
+
+function renderForecastCard(time, value) {
+  const alarm = value.alarm;
+  const probability = value.probability;
+
+  return `
+    <div class="forecast-item">
+      <div class="time">${time}</div>
+      <div class="alarm ${alarm}">
+        ${alarm ? "Alarm possible" : "No alarm"}
+      </div>
+      <div class="probability">
+        Risk: ${(probability * 100).toFixed(1)}%
+      </div>
+    </div>
+  `;
+}
+
+function renderRegionForecast(regionName, regionData) {
+  const entries = Object.entries(regionData);
+
+  const cards = entries.map(([time, value]) => {
+    return renderForecastCard(time, value);
+  }).join("");
+
+  forecastTitle.textContent = `Forecast for ${regionName}`;
+  forecastContent.className = "forecast-grid";
+  forecastContent.innerHTML = cards;
+}
+
+function renderAllRegions(allData) {
+  let html = "";
+
+  for (const [regionName, regionData] of Object.entries(allData)) {
+    const preview = Object.entries(regionData).map(([time, value]) => {
+      return renderForecastCard(time, value);
+    }).join("");
+
+    html += `
+      <section style="margin-bottom: 24px;">
+        <h3 style="margin-bottom: 12px;">${regionName}</h3>
+        <div class="forecast-grid">${preview}</div>
+      </section>
+    `;
+  }
+
+  forecastTitle.textContent = "Forecast for all regions";
+  forecastContent.className = "";
+  forecastContent.innerHTML = html;
+}
+
+async function loadForecast() {
+  const selectedRegion = regionSelect.value;
+
+  try {
+    const response = await fetch("/content/api/v1/forecast/get", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        token: "PREDICT",
+        region: selectedRegion
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      forecastContent.className = "placeholder";
+      forecastContent.innerHTML = `Error: ${data.message || "Something went wrong"}`;
+      return;
+    }
+
+    lastTrainTime.textContent = data.last_model_train_time || "unknown";
+    lastPredictionTime.textContent = data.last_prediction_time || "unknown";
+
+    const regions = data.regions_forecast || {};
+
+    if (selectedRegion === "all") {
+      renderAllRegions(regions);
+      if (chartWrapper) {
+        chartWrapper.classList.add("hidden");
+      }
+    } else {
+      const regionData = regions[selectedRegion];
+      renderRegionForecast(selectedRegion, regionData);
+
+      if (chartWrapper) {
+        chartWrapper.classList.remove("hidden");
+      }
+
+      drawChart(regionData);
+    }
+
+  } catch (error) {
+    forecastContent.className = "placeholder";
+    forecastContent.innerHTML = "Failed to load forecast.";
+    console.error(error);
+  }
+}
+
+function fillRegionSelect(regionsForecast) {
+  regionSelect.innerHTML = '<option value="all">All regions</option>';
+
+  const regionNames = Object.keys(regionsForecast).sort();
+
+  for (const regionName of regionNames) {
+    const option = document.createElement("option");
+    option.value = regionName;
+    option.textContent = regionName;
+    regionSelect.appendChild(option);
+  }
+}
+
+async function loadRegions() {
+  try {
+    const response = await fetch("/content/api/v1/forecast/get", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        token: "PREDICT",
+        region: "all"
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error(data.message || "Failed to load regions");
+      return;
+    }
+
+    const regions = data.regions_forecast || {};
+    fillRegionSelect(regions);
+
+  } catch (error) {
+    console.error("Failed to load regions:", error);
+  }
+}
+
+function drawChart(regionData) {
+  const labels = Object.keys(regionData);
+  const values = Object.values(regionData).map(v => v.probability);
+
+  const ctx = document.getElementById("forecastChart").getContext("2d");
+
+  if (window.myChart) {
+    window.myChart.destroy();
+  }
+
+  window.myChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: [{
+        label: "Alarm probability",
+        data: values,
+        borderWidth: 2,
+        tension: 0.3
+      }]
+    },
+    options: {
+      scales: {
+        y: {
+          beginAtZero: true,
+          max: 1,
+          ticks: {
+            callback: val => (val * 100).toFixed(0) + "%"
+          }
+        }
+      }
+    }
+  });
+}
+
+loadRegions();
+loadForecastBtn.addEventListener("click", loadForecast);
+</script>
+
+</body>
+</html>
