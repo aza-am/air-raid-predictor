@@ -30,11 +30,12 @@ pip install -r requirements.txt
 
 Створіть файл .env на основі представленого нами .env.example:
 
-env
+
+```env
 TG_API_ID=your_telegram_api_id
 TG_API_HASH=your_telegram_api_hash
 WEATHER_API_KEY=your_visual_crossing_key
-
+```
 
 
 Запустіть систему:
