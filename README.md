@@ -22,10 +22,11 @@
 
 Створіть віртуальне середовище та встановіть залежності:
 
-bash
+```bash
 python -m venv venv
-source  venv\Scripts\activate      
+source venv\Scripts\activate      
 pip install -r requirements.txt
+```
 
 
 Створіть файл .env на основі представленого нами .env.example:
@@ -40,9 +41,10 @@ WEATHER_API_KEY=your_visual_crossing_key
 
 Запустіть систему:
 
-bash
+```bash
 python run_pipeline.py
 python app.py
+```
 
 
 Відкрийте [http://127.0.0.1:5000](http://127.0.0.1:5000) у браузері.
